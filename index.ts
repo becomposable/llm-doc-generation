@@ -1,7 +1,11 @@
 import { ComposableClient } from '@becomposable/client';
+import { Command } from 'commander';
 import fs from 'fs';
+import zlib from 'zlib';
 
 const CONTENTDIR = 'content';
+const CONTEXTDIR = 'context';
+let CONTEXT: Record<string, any> | undefined = undefined;
 
 export interface Toc {
     sections: {
@@ -25,17 +29,6 @@ export interface BasePromptData {
     part_name: string;
 }
 
-
-export interface Options {
-    envId: string;
-    modelId: string;
-    serverApi: string[];
-    clientApi: string[];
-    examples: string[];
-    types: string[];
-    instruction: string;
-}
-
 export interface DocSection {
     slug: string;
     title: string;
@@ -47,6 +40,63 @@ export interface DocPart {
     title: string;
     content: string;
 }
+
+
+function getContextFileName(name: string) {
+    return `${CONTEXTDIR}/${name}.json.gz`;
+}
+
+async function loadContext(name: string): Promise<Record<string, any>> {
+    if (CONTEXT) return CONTEXT;
+
+    const contextPath = getContextFileName(name);
+    if (fs.existsSync(contextPath)) {
+        const data = zlib.gunzipSync(fs.readFileSync(contextPath));
+        const contextData = JSON.parse(data.toString());
+        console.log('Loaded Context:', Object.keys(contextData));
+        return Promise.resolve(contextData);
+    } else {
+        return {};
+    }
+}
+
+
+export async function getFromContext(contextName: string, key: string) {
+    console.log('Getting from context:', contextName, key);
+    const contextData = await loadContext(contextName);
+
+    if (contextData[key]) {
+        console.log('Cache hit for:', key, Object.keys(contextData));
+        return contextData[key];
+    } else {
+        console.log('Cache miss for:', key, Object.keys(contextData));
+        return null;
+    }
+
+}
+
+export async function saveToContext(contextName: string, data: Record<string, any>) {
+
+    console.log('Saving to context:', contextName, Object.keys(data))
+    const contextData = await loadContext(contextName);
+    console.log('Old Context:', Object.keys(contextData));
+
+    //merge the context
+    const newContext = { ...contextData, ...data };
+    console.log('New Context:', Object.keys(newContext));
+
+    //compress with gzip and save
+    const compressed = zlib.gzipSync(JSON.stringify(newContext));
+    const file = getContextFileName(contextName);
+    fs.writeFileSync(file, compressed);
+
+    //update cache
+    CONTEXT = newContext;
+    console.log('Updated Context:', Object.keys(CONTEXT));
+
+
+}
+
 
 export function generateDocFromParts(docParts: Record<string, DocSection>): string {
     let doc = '';
@@ -161,7 +211,7 @@ export async function generateToc(client: ComposableClient, interactionName: str
 }
 
 
-export function executeGeneration<T>(client: ComposableClient, interactionName: string, promptData: T, envId?: string, modelId?: string) {
+export async function executeGeneration<T>(client: ComposableClient, interactionName: string, promptData: T, envId?: string, modelId?: string) {
 
     console.log(`Executing Interaction$ ${interactionName} with model ${modelId} on environment ${envId}...`);
 
@@ -187,12 +237,17 @@ export function prepareFileContent(file: string) {
     return `\n\n========== ${filename} ========== \n\n${content}\n\n ========== End of ${filename} ==========\n\n`;
 }
 
-export function getFilesContent(files: string[]) {
+export function getFilesContent(files: string[], name: string): string {
+    console.debug(`Reading ${files?.length ?? 0} files for ${name}`);
+    if (!files || files.length === 0) {
+        console.warn(`No files found for ${name}`);
+        return '';
+    }
     return files.map((file) => prepareFileContent(file)).join('\n');
 }
 
 
-export function writeTocToDisk (prefix: string, toc: Toc) {
+export function writeTocToDisk(prefix: string, toc: Toc) {
 
     console.log('Writing TOC to disk', toc);
     const timestamp = new Date().toISOString();
@@ -205,7 +260,7 @@ export function writeTocToDisk (prefix: string, toc: Toc) {
 
 }
 
-export function writeSectionToDisk (prefix: string, section: DocSection, model?: string) {
+export function writeSectionToDisk(prefix: string, section: DocSection, model?: string) {
 
     console.log('Writing section to disk', section);
     const timestamp = new Date().toISOString();
@@ -237,3 +292,32 @@ export function writeSectionToDisk (prefix: string, section: DocSection, model?:
     fs.writeFileSync(`${dir}/page.mdx`, content);
 
 }
+
+
+
+export interface BaseOptions {
+    envId: string;
+    modelId: string;
+    serverApi: string[];
+    clientApi: string[];
+    examples: string[];
+    types: string[];
+    prefix: string;
+    instruction: string;
+    server?: string;
+    token?: string;
+    useContext: string;
+}
+
+
+export const BaseProgram = new Command()
+    .option('-e, --envId <envId>', 'Environment ID in Composable')
+    .option('-m, --modelId <modelId>', 'Model ID in your Environment')
+    .option('--server-api <serverApi...>', 'Server Endpoints for the API')
+    .option('--client-api <clientApi...>', 'code help or using the tool, typically client code')
+    .option('--examples <examples...>', 'example of documentation, can be the current one')
+    .option('--types <types...>', 'types and interaces used in the code')
+    .option('--instruction <instruction>', 'instruction for the generation')
+    .option('-s --server <apiEndpoint>', 'Server API Endpoint')
+    .option('-k --token [token]', 'APIKey or JWT Token')
+    .option('-C --use-context <context>', 'Use the context of the current directory', 'default')

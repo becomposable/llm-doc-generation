@@ -1,15 +1,13 @@
 import { ComposableClient } from '@becomposable/client';
-import { Command } from 'commander';
-import { type BasePromptData, type DocSection, executeGeneration, generateDocFromParts, generateToc, getFilesContent, type Options, writeSectionToDisk, writeTocToDisk } from '.';
+import { type BaseOptions, BaseProgram, type BasePromptData, type DocSection, executeGeneration, generateDocFromParts, generateToc, getFilesContent, getFromContext, saveToContext, type Toc, writeSectionToDisk, writeTocToDisk } from '.';
+import fs from 'fs';
+import zlib from 'zlib';
 
 const INTERACTION_NAME = "exp:GenerateAPIDoc"
 let PREFIX = 'api-docs';
 
 
-interface ApiDocOptions extends Options {
-    serverApi: string[];
-    clientApi: string[];
-    types: string[];
+interface ApiDocOptions extends BaseOptions {
 }
 
 interface ApiDocPromptData extends BasePromptData {
@@ -31,11 +29,16 @@ async function generate(client: ComposableClient, options: ApiDocOptions) {
     let model: string = modelId || '';
     let n = 1;
 
-
-    const serverApiDoc = getFilesContent(serverApi);
-    const clientApiDoc = getFilesContent(clientApi);
-    const typesDoc = getFilesContent(types);
-    const examplesDoc = getFilesContent(examples);
+    const serverApiDoc = await getFromContext(options.useContext, 'serverApi') ?? getFilesContent(serverApi, 'serverApi');
+    const clientApiDoc = await getFromContext(options.useContext, 'clientApi') ?? getFilesContent(clientApi, 'clientApi');
+    const typesDoc = await getFromContext(options.useContext, 'types') ?? getFilesContent(types, 'types');
+    const examplesDoc = await getFromContext(options.useContext, 'examples') ?? getFilesContent(examples, 'examples');
+    saveToContext(options.useContext, {
+        serverApi: serverApiDoc,
+        clientApi: clientApiDoc,
+        types: typesDoc,
+        examples: examplesDoc,
+    })
 
     const commonPromptData = {
         api_endpoint: serverApiDoc,
@@ -45,11 +48,22 @@ async function generate(client: ComposableClient, options: ApiDocOptions) {
         instruction: options.instruction,
     }
 
-    const toc = await generateToc(client, INTERACTION_NAME, envId, modelId, commonPromptData)
-    console.log('Table of Content:', toc);
-    writeTocToDisk(PREFIX, toc);
+    let toc = await getFromContext(options.useContext, 'toc') as Toc | undefined;
+    if (!toc) {
+        console.log('Generating Table of Content...');
+        toc = await generateToc(client, INTERACTION_NAME, envId, modelId, commonPromptData)
+        console.log(`ToC Generated (${typeof toc})`, { toc })
+        saveToContext(options.useContext, { toc });
+    }
 
+    console.log(`Starting processing of ${toc.sections.length} sections...`)
     for (const section of toc.sections) {
+        const done = await getFromContext(options.useContext, `section-${section.slug}`);
+        if (done) {
+            console.log(`Skipping ${section.title} ( ${n++} of ${toc.sections.length} ) because it has been already generated...`);
+            continue;
+        }
+
         console.log(`Generating ${section.title} ( ${n++} of ${toc.sections.length} )...`);
         const start = Date.now();
         const docState = generateDocFromParts(docParts);
@@ -109,44 +123,32 @@ async function generate(client: ComposableClient, options: ApiDocOptions) {
 
         model = res.modelId;
         console.log("Generated Section - writing to disk", generatedSection);
-        await writeSectionToDisk(PREFIX, generatedSection, model);
+        await saveToContext(options.useContext, { ['section-' + section.slug]: section });
+        writeSectionToDisk(PREFIX, generatedSection, model);
         const end = Date.now();
         console.log(`Generated ${section.title} in ${(end - start) / 1000}s`);
 
     }
 
-    //save to file 
+    //save to file
     console.log(`Construction document from ${Object.keys(docParts).length} parts...`);
     console.log('Generated Doc in', (Date.now() - start) / 1000, 's');
 
 
 }
 
-//use commander to get envId and modelId 
-const program = new Command();
-program
-    .option('-e, --envId <envId>', 'Environment ID')
-    .option('-m, --modelId <modelId>', 'Model ID')
-    .option('--server-api <serverApi...>', 'Server Endpoint API')
-    .option('--client-api <clientApi...>', 'Client API')
-    .option('--examples <examples...>', 'examples Doc')
-    .option('--types <types...>', 'Types')
-    .option('--prefix <prefix>', 'Prefix for the generated files')
-    .option('--instruction <instruction>', 'Instruction for the generation')
-    .option('-s --server <apiEndpoint>', 'Server API Endpoint')
-    .option('-k --token [token]', 'APIKey or JWT Token')
+//use commander to get envId and modelId
+const apiDocGenerator = BaseProgram.action((options) => {
+    if (options.prefix) {
+        PREFIX = options.useContext;
+    }
+    console.log(`Generating Doc for ${PREFIX}...`, options);
+    const client = new ComposableClient({
+        apikey: options.token,
+        serverUrl: options.server,
+        storeUrl: options.server,
+    });
+    generate(client, options);
+});
 
-    .action((options) => {
-        if (options.prefix) {
-            PREFIX = options.prefix;
-        }
-
-        const client = new ComposableClient({
-            apikey: options.token,
-            serverUrl: options.apiEndpoint,
-            storeUrl: options.apiEndpoint,
-        });
-        console.log(`Generating Doc for ${PREFIX}...`);
-        generate(client, options);
-    })
-    .parse(process.argv);   
+apiDocGenerator.parse(process.argv);

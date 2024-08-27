@@ -1,12 +1,11 @@
 import { ComposableClient } from '@becomposable/client';
-import { Command } from 'commander';
-import { type BasePromptData, type DocSection, executeGeneration, generateDocFromParts, generateToc, getFilesContent, type Options, writeSectionToDisk, writeTocToDisk } from '.';
+import { type BaseOptions, BaseProgram, type BasePromptData, type DocSection, executeGeneration, generateDocFromParts, generateToc, getFilesContent, writeSectionToDisk, writeTocToDisk } from '.';
 
 const INTERACTION_NAME = "exp:GenerateCLIDoc"
 let PREFIX = 'cli';
 
-interface CliOptions extends Options {
-    cliCode: string[];
+interface CliOptions extends BaseOptions {
+    toolCode: string[];
 }
 
 interface CliPromptData extends BasePromptData {
@@ -16,7 +15,7 @@ interface CliPromptData extends BasePromptData {
 
 async function generate(client: ComposableClient, options: CliOptions) {
 
-    const { envId, modelId, cliCode, clientApi, examples, types } = options;
+    const { envId, modelId, toolCode, clientApi, examples, types } = options;
     console.log('Generating Doc with options:', options);
 
     let docParts: Record<string, DocSection> = {};
@@ -26,7 +25,7 @@ async function generate(client: ComposableClient, options: CliOptions) {
     let n = 1;
 
 
-    const cliCodeDoc = getFilesContent(cliCode);
+    const cliCodeDoc = getFilesContent(toolCode);
     //const clientApiDoc = getFilesContent(clientApi);
     //const typesDoc = getFilesContent(types);
     const examplesDoc = getFilesContent(examples);
@@ -118,18 +117,7 @@ async function generate(client: ComposableClient, options: CliOptions) {
 
 }
 
-//use commander to get envId and modelId 
-const program = new Command();
-program
-    .option('-e, --envId <envId>', 'Environment ID')
-    .option('-m, --modelId <modelId>', 'Model ID')
-    .option('--cli-code <cliCode...>', 'Server Endpoint API')
-    .option('--client-api <clientApi...>', 'Client API')
-    .option('--examples <examples...>', 'examples Doc')
-    .option('--types <types...>', 'Types')
-    .option('--prefix <prefix>', 'Prefix for the generated files')
-    .option('--instruction <instruction>', 'Instruction for the generation')
-
+const cliDoc = BaseProgram
     .action((options) => {
 
         if (options.prefix) {
@@ -143,4 +131,5 @@ program
         console.log(`Generating Doc for ${PREFIX}...`, options);
         generate(client, options);
     })
-    .parse(process.argv);
+
+    cliDoc.parse(process.argv);

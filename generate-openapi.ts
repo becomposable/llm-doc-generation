@@ -1,17 +1,13 @@
 import { ComposableClient } from '@becomposable/client';
-import { Command } from 'commander';
 import fs from 'fs';
-import { type BasePromptData, type DocSection, executeGeneration, generateDocFromParts, getFilesContent, type Options, type Toc } from '.';
+import { type BaseOptions, BaseProgram, type BasePromptData, type DocSection, executeGeneration, generateDocFromParts, getFilesContent, type Toc } from '.';
 
 const CONTENTDIR = 'content';
 const INTERACTION_NAME = "exp:TaskGenerateOpenAPI"
 let PREFIX = 'openapi';
 
 
-interface ApiDocOptions extends Options {
-    serverApi: string[];
-    clientApi: string[];
-    types: string[];
+interface ApiDocOptions extends BaseOptions {
 }
 
 interface OpenApiPromptData extends BasePromptData {
@@ -139,28 +135,23 @@ function writeToDisk(content: string, filename: string) {
 
 
 //use commander to get envId and modelId 
-const program = new Command();
-program
-    .option('-e, --envId <envId>', 'Environment ID')
-    .option('-m, --modelId <modelId>', 'Model ID')
-    .option('--server-api <serverApi...>', 'Server Endpoint API')
-    .option('--client-api <clientApi...>', 'Client API')
-    .option('--types <types...>', 'Types')
-    .option('--prefix <prefix>', 'Prefix for the generated files')
-    .option('--instruction <instruction>', 'Instruction for the generation')
-
-
-
-    .action((options) => {
+const openapiGenerator = BaseProgram
+    .action((options: ApiDocOptions) => {
         if (options.prefix) {
             PREFIX = options.prefix;
         }
+
+        if (!options.server) {
+            throw new Error('Server URL is required');
+        }
+        
         const client = new ComposableClient({
             apikey: options.token,
-            serverUrl: options.apiEndpoint,
-            storeUrl: options.apiEndpoint,
+            serverUrl: options.server,
+            storeUrl: options.server,
         });
         console.log(`Generating Doc for ${PREFIX}...`);
         generate(client, options);
-    })
-    .parse(process.argv);   
+    });
+
+openapiGenerator.parse(process.argv);   
