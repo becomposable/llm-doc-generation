@@ -1,5 +1,5 @@
 import { ComposableClient } from '@becomposable/client';
-import { type BaseOptions, BaseProgram, type BasePromptData, type DocSection, executeGeneration, generateDocFromParts, generateToc, getFilesContent, getFromContext, saveToContext, type Toc, writeSectionToDisk, writeTocToDisk } from '.';
+import { type BaseOptions, BaseProgram, type BasePromptData, type DocSection, executeGeneration, generateDocFromParts, getFilesContent, getFromContext, saveToContext, type Toc, writeSectionToDisk, writeTocToDisk } from '.';
 import fs from 'fs';
 import zlib from 'zlib';
 
@@ -20,7 +20,7 @@ interface ApiDocPromptData extends BasePromptData {
 
 async function generate(client: ComposableClient, options: ApiDocOptions) {
 
-    const { envId, modelId, serverApi, clientApi, examples, types } = options;
+    const { envId, modelId } = options;
     console.log('Generating Doc with options:', options);
 
     let docParts: Record<string, DocSection> = {};
@@ -33,6 +33,7 @@ async function generate(client: ComposableClient, options: ApiDocOptions) {
     const clientApiDoc = await getFromContext(options.useContext, 'clientApi') ?? getFilesContent(clientApi, 'clientApi');
     const typesDoc = await getFromContext(options.useContext, 'types') ?? getFilesContent(types, 'types');
     const examplesDoc = await getFromContext(options.useContext, 'examples') ?? getFilesContent(examples, 'examples');
+
     saveToContext(options.useContext, {
         serverApi: serverApiDoc,
         clientApi: clientApiDoc,
@@ -138,17 +139,22 @@ async function generate(client: ComposableClient, options: ApiDocOptions) {
 }
 
 //use commander to get envId and modelId
-const apiDocGenerator = BaseProgram.action((options) => {
-    if (options.prefix) {
-        PREFIX = options.useContext;
-    }
-    console.log(`Generating Doc for ${PREFIX}...`, options);
-    const client = new ComposableClient({
-        apikey: options.token,
-        serverUrl: options.server,
-        storeUrl: options.server,
+const apiDocGenerator = BaseProgram
+    .option('--server-api <serverApi...>', 'Server Endpoints for the API')
+    .option('--client-api <clientApi...>', 'code help or using the tool, typically client code')
+    .option('--examples <examples...>', 'example of documentation, can be the current one')
+    .option('--types <types...>', 'types and interaces used in the code')
+    .action((options) => {
+        if (options.prefix) {
+            PREFIX = options.useContext;
+        }
+        console.log(`Generating Doc for ${PREFIX}...`, options);
+        const client = new ComposableClient({
+            apikey: options.token,
+            serverUrl: options.server,
+            storeUrl: options.server,
+        });
+        generate(client, options);
     });
-    generate(client, options);
-});
 
 apiDocGenerator.parse(process.argv);
