@@ -75,7 +75,8 @@ export async function saveToContext(contextName: string, data: Record<string, an
     fs.writeFileSync(file, compressed);
 
     //update cache
-    CONTEXT = newContext;
+    CONTEXT = { ...newContext };
+    console.log('Now in context:', Object.keys(CONTEXT))
 
 
 }
@@ -183,17 +184,16 @@ export function writeSectionToDisk(prefix: string, section: DocSection, model?: 
 }
 
 
-//load the files into the context
-export async function prepareContext(options: BaseOptions) {
+export async function getFiles(options: BaseOptions): Promise<Record<string, string[]>> {
 
     if (!options.files || !options.files.length) {
-        return;
+        throw new Error('No files specified');
     }
 
-    const specsByKey: Record<string, string[]> = {};
+    const filesByKey: Record<string, string[]> = {};
     for (let filesSpec of options.files) {
         const [key, spec] = filesSpec.split(':');
-        console.log('Loading files for', key, spec)
+        console.log('Listing files for', key, spec)
         if (!key || !glob) {
             throw new Error('Invalid file spec: ' + filesSpec);
         }
@@ -203,21 +203,39 @@ export async function prepareContext(options: BaseOptions) {
             console.log('No files found for spec: ', filesSpec);
             continue;
         }
-        if (!specsByKey[key]) {
-            specsByKey[key] = files;
+        if (!filesByKey[key]) {
+            filesByKey[key] = files;
         } else {
-            specsByKey[key] = [...specsByKey[key], ...files];
+            filesByKey[key] = [...filesByKey[key], ...files];
         }
     }
 
+    return filesByKey;
+
+}
+
+//load the files into the context
+export async function prepareContext(options: BaseOptions) {
+    console.log('Preparing context...')
+    const specsByKey = await getFiles(options);
+
     for (const key of Object.keys(specsByKey)) {
+        console.log('Loading files into context key', key);
         const files = specsByKey[key];
         const content = getFilesContent(files)
-        const currentState = await getFromContext(options.useContext, key) ?? '';
 
-        saveToContext(options.useContext, { [key]: currentState + '\n' + content });
+        await saveToContext(options.useContext, { [key]: content });
         console.log(`Loaded ${files.length} files into ${key} for (${(content.length / 1000).toFixed(2)}kB)`)
     }
+
+    const data: Record<string, string> = {}
+    for (const item of options.data ?? []) {
+        const [key, value] = item.split(':');
+        console.log('Setting data', key, value);
+        data[key] = value;
+    }
+    await saveToContext(options.useContext, data)
+
 
 }
 
@@ -231,8 +249,14 @@ async function generate(client: ComposableClient, options: BaseOptions) {
     await prepareContext(options);
 
     const promptData = await loadContext(options.useContext) ?? {};
+    console.log('Prompt Keys:', Object.keys(promptData))
 
     const res = await executeGeneration(client, options.interaction, promptData, options.envId, options.modelId);
+
+    if (options.output) {
+        console.log('Writing output to', options.output)
+        fs.writeFileSync(options.output, res.result);
+    }
 
     return res.result;
 
@@ -248,6 +272,7 @@ export interface BaseOptions {
     useContext: string;
     interaction?: string;
     output?: string;
+    data?: string[];
 }
 
 
@@ -257,10 +282,11 @@ export const BaseProgram = new Command()
     .option('-s --server <apiEndpoint>', 'Composable API Server')
     .option('-k --token <token>', 'APIKey or JWT Token')
     .option('-C --use-context <context>', 'Use the context of the current directory', 'default')
-    .option('-f, --files <key:files glob...>', 'Pass files to be included in context, under the key passed')
+    .option('-f, --files <key:glob...>', 'Pass files to be included in context, under the key passed')
+    .option('-d, --data <key:value...>', 'Data to pass to the interaction in format key:value')
     .option('-I, --instruction <instruction>', 'Instruction for the generation')
     .option('-i, --interaction [interaction]', 'Interaction to execute')
-    .option('-o, --ouput [filename|directory]', 'Where to save the result, directory or file')
+    .option('-o, --output [filename|directory]', 'Where to save the result, directory or file')
 
 
 const generator = BaseProgram
@@ -269,7 +295,7 @@ const generator = BaseProgram
         const client = new ComposableClient({
             apikey: options.token,
             serverUrl: options.server,
-            storeUrl: options.server,
+            storeUrl: options.server.replace('studio', 'store')
         });
         console.log(`Generating Doc for ${options.useContext}...`);
 
