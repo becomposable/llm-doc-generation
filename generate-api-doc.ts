@@ -1,5 +1,5 @@
 import { ComposableClient } from '@becomposable/client';
-import { type BaseOptions, BaseProgram, type BasePromptData, type DocSection, executeGeneration, generateDocFromParts, getFilesContent, getFromContext, saveToContext, type Toc, writeSectionToDisk, writeTocToDisk } from '.';
+import { type BaseOptions, BaseProgram, type BasePromptData, type DocSection, executeGeneration, generateDocFromParts, getFilesContent, getFromContext, loadContext, saveToContext, type Toc, writeSectionToDisk, writeTocToDisk } from '.';
 import fs from 'fs';
 import zlib from 'zlib';
 
@@ -16,6 +16,84 @@ interface ApiDocPromptData extends BasePromptData {
     examples: string;
     types: string;
 }
+
+
+interface BasePromptData {
+    already_generated: string;
+    part_name: string;
+    instruction: string;
+    [key]: any;
+}
+
+async function generateSection(client: ComposableClient, section: DocSection, options: BaseOptions) {
+
+    const existing = await getFromContext(options.useContext, section.id);
+    if (existing) {
+        console.log('Section already generated', section.id);
+        return existing;
+    }
+
+    const context = await loadContext(options.useContext);
+    const alreadyGenerated = Object.keys(context).filter(k => k.startsWith("g-")).map(k => context[k]);
+    const contextForPrompt = { ...context }
+    for (const k of Object.keys(context).filter(k => k.startsWith("g-"))) {
+        delete contextForPrompt[k];
+    }
+
+    let parts: DocPart[] = [];
+    for (const part of (section.parts || [])) {
+        const p = await generatePart(client, section, part, options)
+        parts.push(p);
+    }
+
+    const promptData = {
+        ...context,
+        already_generated: JSON.stringify(alreadyGenerated),
+        part_name: section.id,
+        instruction: `Generate the section: ${section.id}`,
+    }
+
+    const { modelId, envId } = options;
+    const res = await executeGeneration<BasePromptData>(client, INTERACTION_NAME, promptData, envId, modelId);
+
+    saveToContext(options.useContext, { [section.id]: res.result });
+    console.log('Section generated and saved to context', section.id, res.result);
+
+}
+
+async function generatePart(client: ComposableClient, section: DocSection, part: DocPart, options: BaseOptions) {
+
+    const partId = `g-${section.id}-${part.id}`
+    const existing = await getFromContext(options.useContext, partId);
+    if (existing) {
+        console.log('Part already generated', partId);
+        return existing;
+    }
+
+    const context = await loadContext(options.useContext);
+    const alreadyGenerated = Object.keys(context).filter(k => k.startsWith("g-")).map(k => context[k]);
+    const contextForPrompt = { ...context }
+    for (const k of Object.keys(context).filter(k => k.startsWith("g-"))) {
+        delete contextForPrompt[k];
+    }
+
+    const promptData = {
+        ...contextForPrompt,
+        already_generated: JSON.stringify(alreadyGenerated),
+        part_name: `section: ${section.id} part: ${part.id}`,
+        instruction: `Generate the part ${part.id} of section ${section.id}`,
+    }
+
+    const { modelId, envId } = options;
+    const res = await executeGeneration<BasePromptData>(client, INTERACTION_NAME, promptData, envId, modelId);
+
+    saveToContext(options.useContext, { [partId]: res.result });
+    console.log('Part generated and saved to context', partId, res.result);
+
+    return res.result;
+
+}
+
 
 
 async function generate(client: ComposableClient, options: ApiDocOptions) {

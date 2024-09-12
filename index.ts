@@ -1,12 +1,13 @@
 import { ComposableClient } from '@becomposable/client';
 import { Command } from 'commander';
 import fs from 'fs';
+import { glob } from 'glob';
 import zlib from 'zlib';
 import type { Toc } from './toc';
-import { glob } from 'glob';
 
-const CONTENTDIR = 'content';
-const CONTEXTDIR = 'context';
+const CPBASE = process.env.CPBASE || '.';
+const CONTENTDIR = `${CPBASE}/content`;
+const CONTEXTDIR = `${CPBASE}/context`;
 let CONTEXT: Record<string, any> | undefined = undefined;
 
 export interface BasePromptData {
@@ -76,9 +77,6 @@ export async function saveToContext(contextName: string, data: Record<string, an
 
     //update cache
     CONTEXT = { ...newContext };
-    console.log('Now in context:', Object.keys(CONTEXT))
-
-
 }
 
 
@@ -255,7 +253,11 @@ async function generate(client: ComposableClient, options: BaseOptions) {
 
     if (options.output) {
         console.log('Writing output to', options.output)
-        fs.writeFileSync(options.output, res.result);
+        if (typeof res.result === 'object') {
+            fs.writeFileSync(options.output, JSON.stringify(res.result, null, 4));
+        } else {
+            fs.writeFileSync(options.output, res.result);
+        }
     }
 
     return res.result;
@@ -291,6 +293,10 @@ export const BaseProgram = new Command()
 
 const generator = BaseProgram
     .action((options: BaseOptions) => {
+
+        if (!options.server) {
+            throw new Error('No server provided');
+        }
 
         const client = new ComposableClient({
             apikey: options.token,
