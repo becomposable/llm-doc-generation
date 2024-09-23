@@ -237,7 +237,7 @@ export async function prepareContext(options: BaseOptions) {
 
 }
 
-async function generate(client: ComposableClient, options: BaseOptions) {
+export async function generate(client: ComposableClient, options: BaseOptions) {
 
     console.log('Generating Doc with options:', options);
     if (!options.interaction) {
@@ -289,23 +289,3 @@ export const BaseProgram = new Command()
     .option('-I, --instruction <instruction>', 'Instruction for the generation')
     .option('-i, --interaction [interaction]', 'Interaction to execute')
     .option('-o, --output [filename|directory]', 'Where to save the result, directory or file')
-
-
-const generator = BaseProgram
-    .action((options: BaseOptions) => {
-
-        if (!options.server) {
-            throw new Error('No server provided');
-        }
-
-        const client = new ComposableClient({
-            apikey: options.token,
-            serverUrl: options.server,
-            storeUrl: options.server.replace('studio', 'store')
-        });
-        console.log(`Generating Doc for ${options.useContext}...`);
-
-        generate(client, options);
-    });
-
-generator.parse(process.argv);
