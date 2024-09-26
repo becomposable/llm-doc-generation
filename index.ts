@@ -156,14 +156,14 @@ export function writeSectionToDisk(prefix: string, section: DocSection, model?: 
 
     //write json to file to backup
     fs.mkdirSync(`${CONTENTDIR}/backup`, { recursive: true });
-    fs.writeFileSync(`${CONTENTDIR}/backup/${timestamp}-${section.slug}.json`, JSON.stringify(section, null, 4));
+    fs.writeFileSync(`${CONTENTDIR}/backup/${timestamp}-${section.id}.json`, JSON.stringify(section, null, 4));
 
     const dirname = prefix ?? `${timestamp}`.replace(/\//g, '_').replace(/:/g, '_');
     console.log('Writing', `${CONTENTDIR}/${dirname}`);
     fs.mkdirSync(`${CONTENTDIR}/${dirname}`, { recursive: true });
 
     let content = `export const metadata = {
-    title: '${section.title}',
+    title: '${section.name}',
     model: '${model}',
     generated_at: '${timestamp}',
     }
@@ -175,7 +175,7 @@ export function writeSectionToDisk(prefix: string, section: DocSection, model?: 
             content += `\n\n${part.content}\n\n`;
         }
     }
-    const dir = `${CONTENTDIR}/${dirname}/${section.slug}`;
+    const dir = `${CONTENTDIR}/${dirname}/${section.id}`;
     fs.mkdirSync(dir, { recursive: true });
     console.log('Writing file to ', `${dir}/page.mdx`);
     fs.writeFileSync(`${dir}/page.mdx`, content);
