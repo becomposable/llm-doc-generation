@@ -3,6 +3,7 @@ import { type BaseOptions, BaseProgram, type BasePromptData, type DocPart, type 
 import fs from 'fs';
 import zlib from 'zlib';
 import { generateToc, type Toc } from './toc';
+import { openInEditor } from 'bun';
 
 const INTERACTION_NAME = "exp:GenerateAPIDoc"
 let PREFIX = 'api-docs';
@@ -13,6 +14,7 @@ interface ApiDocPromptData extends BasePromptData {
     api_client: string;
     examples: string;
     types: string;
+    workflows?: string;
 }
 
 async function generateSection(client: ComposableClient, section: DocSection, options: BaseOptions) {
@@ -104,6 +106,7 @@ async function generate(client: ComposableClient, options: BaseOptions) {
         api_client: await getFromContext(options.useContext, 'client'),
         examples: await getFromContext(options.useContext, 'examples'),
         types: await getFromContext(options.useContext, 'types'),
+        workflow: await getFromContext(options.useContext, 'workflow'),
         instruction: options.instruction,
     }
 
@@ -190,10 +193,13 @@ async function generate(client: ComposableClient, options: BaseOptions) {
 //use commander to get envId and modelId
 const apiDocGenerator = BaseProgram
     .action((options) => {
-        if (options.prefix) {
+        if (options.useContext) {
             PREFIX = options.useContext;
         }
         console.log(`Generating Doc for ${PREFIX}...`, options);
+        //create context and context dir
+        fs.mkdirSync(`content/${PREFIX}`, { recursive: true });
+        fs.mkdirSync(`context`, { recursive: true });
         const client = new ComposableClient({
             apikey: options.token,
             serverUrl: options.server,
